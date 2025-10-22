@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="athena_drive">
+
+  <!-- Use this if parameters are set from the launch file, otherwise delete -->
+  <xacro:arg name="prefix" default=""/>
+
+  <xacro:arg name="use_mock_hardware" default="false"/>
+  <xacro:arg name="mock_sensor_commands" default="false"/>
+  <xacro:arg name="sim_gazebo_classic" default="true"/>
+  <xacro:arg name="sim_gazebo" default="true"/>
+  <xacro:arg name="simulation_controllers" default=""/>
+
+
+  <xacro:include filename="$(find athena_drive_description)/urdf/athena_drive/athena_drive_macro.xacro"/>
+  <xacro:include filename="$(find athena_drive_description)/urdf/athena_drive/athena_drive_macro.ros2_control.xacro"/>
+
+
+  <!-- Load robot's macro with parameters -->
+  <!-- set prefix if multiple robots are used -->
+  <!--
+  <xacro:athena_drive prefix="$(arg prefix)" parent="world">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:athena_drive>
+  -->
+
+  
+  <!-- Import athena_drive macro -->
+  <xacro:include filename="$(find athena_drive_description)/urdf/athena_drive_description.urdf.xacro"/>
+
+  <!-- Import rmd ros2_control description -->
+  <xacro:include filename="$(find athena_drive_description)/ros2_control/rmd.ros2_control.xacro" />
+
+  <!-- Import odrive ros2_control description -->
+  <xacro:include filename="$(find athena_drive_description)/ros2_control/odrive.ros2_control.xacro" />
+
+  <!-- create link fixed to the "world" -->
+  <link name="world"/>
+
+  <xacro:athena_drive_description/>
+
+  <xacro:if value="$(arg use_mock_hardware)">
+    <xacro:athena_drive_ros2_control
+    name="athena_drive"
+    prefix="$(arg prefix)"
+    use_mock_hardware="$(arg use_mock_hardware)"
+    mock_sensor_commands="$(arg mock_sensor_commands)"
+    sim_gazebo_classic="$(arg sim_gazebo_classic)"
+    sim_gazebo="$(arg sim_gazebo)"
+    simulation_controllers="$(arg simulation_controllers)"/>
+  </xacro:if>
+  <xacro:unless value="$(arg use_mock_hardware)">
+    <xacro:rmd_ros2_control name="rmd"/>
+    <xacro:odrive_ros2_control name="odrive"/>
+  </xacro:unless>
+
+  
+</robot>

@@ -1,0 +1,52 @@
+# Parameters for the SingleAckermannController
+single_ackermann_controller:
+  drive_joints: {
+    type: string_array,
+    default_value: [],
+    description: "The names of the drive wheel joints."
+  }
+  steer_joints: {
+    type: string_array,
+    default_value: [],
+    description: "The names of the steering joints (front wheels)."
+  }
+  track_width: {
+    type: double,
+    default_value: 0.6604,
+    description: "Distance between left and right wheels in meters."
+  }
+  wheelbase: {
+    type: double,
+    default_value: 0.8382,
+    description: "Distance between front and rear axles in meters."
+  }
+  wheel_radius: {
+    type: double,
+    default_value: 0.254,
+    description: "Radius of the wheels in meters."
+  }
+  forward_axis: {
+    type: int,
+    default_value: 1,
+    description: "Joystick axis for forward/backward movement."
+  }
+  steer_axis: {
+    type: int,
+    default_value: 0,
+    description: "Joystick axis for steering left/right (twist)."
+  }
+  steer_inversion: {
+    type: bool,
+    default_value: true,
+    description: "Invert the steering direction if true."
+  }
+  max_speed: {
+    type: double,
+    default_value: 1.27,
+    description: "Maximum linear speed in m/s."
+  }
+  max_steer_angle: {
+    type: double,
+    default_value: 0.785,
+    description: "Maximum steering angle in radians."
+  }
