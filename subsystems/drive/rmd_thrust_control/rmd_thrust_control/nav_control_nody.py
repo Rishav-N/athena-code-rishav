@@ -3,7 +3,7 @@ from rclpy.node import Node
 # from umdloop_thrustmaster_messages.msg import TMJoystick
 # from umdloop_thrustmaster_messages.msg import Velocitycontrol
 from umdloop_thrustmaster_messages.msg import MotorVelocity
-from umdloop_theseus_can_messages.msg import CANA
+from msgs.msg import CANA
 from sensor_msgs import JointState
 import struct
 

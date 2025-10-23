@@ -38,7 +38,7 @@
 #include <rclcpp/node.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/subscription.hpp>
-#include "umdloop_theseus_can_messages/msg/cana.hpp"
+#include "msgs/msg/cana.hpp"
 
 namespace rmd_ros2_control
 {
@@ -113,13 +113,13 @@ private:
 
   std::vector<bool> joint_initialization_;
 
-  rclcpp::Publisher<umdloop_theseus_can_messages::msg::CANA>::SharedPtr rmd_can_publisher_;
-  rclcpp::Subscription<umdloop_theseus_can_messages::msg::CANA>::SharedPtr rmd_can_subscriber_;
+  rclcpp::Publisher<msgs::msg::CANA>::SharedPtr rmd_can_publisher_;
+  rclcpp::Subscription<msgs::msg::CANA>::SharedPtr rmd_can_subscriber_;
   rclcpp::Node::SharedPtr node_;
   uint16_t current_iteration;
 
 
-  umdloop_theseus_can_messages::msg::CANA received_joint_data_;
+  msgs::msg::CANA received_joint_data_;
 
   std::vector<int> joint_node_write_ids;
   std::vector<int> joint_node_read_ids;

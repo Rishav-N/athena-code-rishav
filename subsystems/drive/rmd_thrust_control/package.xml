@@ -11,7 +11,7 @@
   <exec_depend>rosidl_default_runtime</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>umdloop_thrustmaster_messages</exec_depend>
-  <exec_depend>umdloop_theseus_can_messages</exec_depend>
+  <exec_depend>msgs</exec_depend>
   <exec_depend>ros2launch</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

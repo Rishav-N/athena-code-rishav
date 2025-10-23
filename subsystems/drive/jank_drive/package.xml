@@ -15,7 +15,7 @@
   <exec_depend>python3-pygame</exec_depend>
 
   <exec_depend>umdloop_can</exec_depend>
-  <exec_depend>umdloop_theseus_can_messages</exec_depend>
+  <exec_depend>msgs</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

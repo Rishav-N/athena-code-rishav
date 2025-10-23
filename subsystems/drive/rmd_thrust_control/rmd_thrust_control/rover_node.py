@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from umdloop_theseus_can_messages.msg import CANA
+from msgs.msg import CANA
 from umdloop_thrustmaster_messages.msg import Velocitycontrol, Motorvelocity
 
 class Rover(Node):

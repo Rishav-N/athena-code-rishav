@@ -11,15 +11,13 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
-# Find all message files
-file(GLOB MSG_FILES "msg/*.msg")
-file(GLOB SRV_FILES "srv/*.srv")
-file(GLOB ACTION_FILES "action/*.action")
-
 rosidl_generate_interfaces(${PROJECT_NAME}
-  ${MSG_FILES}
-  ${SRV_FILES}
-  ${ACTION_FILES}
+  "msg/CANA.msg"
+  "msg/CANB.msg"
+  "msg/Currentdraw.msg"
+  "msg/JointReceiver.msg"
+  "msg/SystemInfo.msg"
+  "srv/SetController.srv"
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs
 )
 

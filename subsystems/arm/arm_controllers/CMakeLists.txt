@@ -30,12 +30,12 @@ endforeach()
 # Add arm_controllers library related compile commands
 generate_parameter_library(manual_arm_cylindrical_controller_parameters
   config/manual_arm_cylindrical_controller.yaml
-  include/arm_controllers/validate_athena_arm_controller_parameters.hpp
+  include/athena_arm_controllers/validate_athena_arm_controller_parameters.hpp
 )
 
 generate_parameter_library(manual_arm_joint_by_joint_controller_parameters
   config/manual_arm_joint_by_joint_controller.yaml
-  include/arm_controllers/validate_athena_arm_controller_parameters.hpp
+  include/athena_arm_controllers/validate_athena_arm_controller_parameters.hpp
 )
 
 add_library(
@@ -54,7 +54,7 @@ ament_target_dependencies(arm_controllers ${THIS_PACKAGE_INCLUDE_DEPENDS})
 target_compile_definitions(arm_controllers PRIVATE "manual_arm_cylindrical_controller_BUILDING_DLL")
 
 pluginlib_export_plugin_description_file(
-  controller_interface arm_controllers.xml)
+  controller_interface athena_arm_controllers.xml)
 
 install(
   TARGETS

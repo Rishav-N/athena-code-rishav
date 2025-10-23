@@ -38,7 +38,7 @@
 #include <rclcpp/node.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/subscription.hpp>
-#include "umdloop_theseus_can_messages/msg/cana.hpp"
+#include "msgs/msg/cana.hpp"
 
 namespace actuator_ros2_control
 {
@@ -97,11 +97,11 @@ private:
   double encoder_position;
   double motor_speed;
 
-  rclcpp::Publisher<umdloop_theseus_can_messages::msg::CANA>::SharedPtr actuator_can_publisher_;
-  rclcpp::Subscription<umdloop_theseus_can_messages::msg::CANA>::SharedPtr actuator_can_subscriber_;
+  rclcpp::Publisher<msgs::msg::CANA>::SharedPtr actuator_can_publisher_;
+  rclcpp::Subscription<msgs::msg::CANA>::SharedPtr actuator_can_subscriber_;
   rclcpp::Node::SharedPtr node_;
 
-  umdloop_theseus_can_messages::msg::CANA received_joint_data_;
+  msgs::msg::CANA received_joint_data_;
 
   std::vector<int> joint_node_ids;
   std::vector<int> joint_gear_ratios;

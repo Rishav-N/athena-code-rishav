@@ -5,7 +5,7 @@ from rclpy.node import Node
 from rclpy.logging import get_logger
 from std_msgs.msg import String
 import json
-from umdloop_theseus_can_messages.msg import CANA  # or CANB
+from msgs.msg import CANA  # or CANB
 import can
 import threading
 import struct

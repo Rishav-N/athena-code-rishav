@@ -148,14 +148,14 @@ hardware_interface::CallbackReturn RMDHardwareInterface::on_configure(
   // TODO: Find a way to publish from the lifecyle node itself rather than create our own node within it
   // Node to publish to umdloop_can_node
   node_ = rclcpp::Node::make_shared("rmd_hardware_node");
-  rmd_can_publisher_ = node_->create_publisher<umdloop_theseus_can_messages::msg::CANA>("can_tx", rclcpp::QoS(10));
+  rmd_can_publisher_ = node_->create_publisher<msgs::msg::CANA>("can_tx", rclcpp::QoS(10));
 
   // Lambda function that takes the message as a shared pointer, dereferences it, 
   // and stores it in received_joint_data_ to be used
-  rmd_can_subscriber_ = node_->create_subscription<umdloop_theseus_can_messages::msg::CANA>(
+  rmd_can_subscriber_ = node_->create_subscription<msgs::msg::CANA>(
       "can_rx", 
       rclcpp::QoS(50).reliable(), 
-      [this](const umdloop_theseus_can_messages::msg::CANA::SharedPtr received_message) 
+      [this](const msgs::msg::CANA::SharedPtr received_message) 
       {
         received_joint_data_ = *received_message;
       }
@@ -169,7 +169,7 @@ hardware_interface::CallbackReturn RMDHardwareInterface::on_cleanup(
 {
   // If cleanup occurs before shutdown, this is the last opportunity to shutdown motor since pointers must be deleted here
   for(int i = 0; i < num_joints; i++){
-    auto joint_tx = umdloop_theseus_can_messages::msg::CANA();
+    auto joint_tx = msgs::msg::CANA();
     joint_tx.id = joint_node_write_ids[i];
         
     // Motor Shutdown Command
@@ -195,7 +195,7 @@ hardware_interface::CallbackReturn RMDHardwareInterface::on_activate(
   RCLCPP_INFO(rclcpp::get_logger("RMDHardwareInterface"), "Activating ...please wait...");
 
   for(int i = 0; i < num_joints; i++){
-    auto joint_tx = umdloop_theseus_can_messages::msg::CANA();
+    auto joint_tx = msgs::msg::CANA();
     joint_tx.id = joint_node_write_ids[i];
         
     // Brake Release command (pretty sure brakes don't work)
@@ -231,7 +231,7 @@ hardware_interface::CallbackReturn RMDHardwareInterface::on_deactivate(
   RCLCPP_INFO(rclcpp::get_logger("RMDHardwareInterface"), "Deactivating ...please wait...");
 
   for(int i = 0; i < num_joints; i++){
-    auto joint_tx = umdloop_theseus_can_messages::msg::CANA();
+    auto joint_tx = msgs::msg::CANA();
     joint_tx.id = joint_node_write_ids[i];
         
     // Motor Stop Command
@@ -284,7 +284,7 @@ hardware_interface::return_type RMDHardwareInterface::read(
   // will call angle or velocity messages
   current_iteration++;
   for(int i = 0; i < num_joints; i++) {
-    auto joint_tx = umdloop_theseus_can_messages::msg::CANA();
+    auto joint_tx = msgs::msg::CANA();
     if(current_iteration%2 == 0){
       // Command to read multi-turn angle
       joint_tx.id = joint_node_write_ids[i];
@@ -385,7 +385,7 @@ hardware_interface::return_type rmd_ros2_control::RMDHardwareInterface::write(
   int32_t joint_velocity = 0;
   
   for(int i = 0; i < num_joints; i++) {
-    auto joint_tx = umdloop_theseus_can_messages::msg::CANA(); // Must reinstantiate else data from past iteration gets repeated
+    auto joint_tx = msgs::msg::CANA(); // Must reinstantiate else data from past iteration gets repeated
     joint_tx.id = joint_node_write_ids[i];
     
     if(control_level_[i] == integration_level_t::POSITION && std::isfinite(joint_command_position_[i])) {

@@ -72,14 +72,14 @@ hardware_interface::CallbackReturn ACTUATORHardwareInterface::on_init(
   control_level_.resize(num_joints, integration_level_t::POSITION);
 
   node_ = rclcpp::Node::make_shared("actuator_hardware_node");
-  actuator_can_publisher_ = node_->create_publisher<umdloop_theseus_can_messages::msg::CANA>("can_tx", 10);
+  actuator_can_publisher_ = node_->create_publisher<msgs::msg::CANA>("can_tx", 10);
 
   // Lambda function that takes the message as a shared pointer, dereferences it, 
   // and stores it in received_joint_data_ to be used
-  actuator_can_subscriber_ = node_->create_subscription<umdloop_theseus_can_messages::msg::CANA>(
+  actuator_can_subscriber_ = node_->create_subscription<msgs::msg::CANA>(
       "can_rx", 
       10, 
-      [this](const umdloop_theseus_can_messages::msg::CANA::SharedPtr received_message) 
+      [this](const msgs::msg::CANA::SharedPtr received_message) 
       {
         received_joint_data_ = *received_message;
       });
@@ -144,7 +144,7 @@ hardware_interface::CallbackReturn ACTUATORHardwareInterface::on_activate(
 hardware_interface::CallbackReturn ACTUATORHardwareInterface::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  auto joint_tx = umdloop_theseus_can_messages::msg::CANA();
+  auto joint_tx = msgs::msg::CANA();
   RCLCPP_INFO(rclcpp::get_logger("ACTUATORHardwareInterface"), "Deactivating ...please wait...");
 
   RCLCPP_INFO(rclcpp::get_logger("ACTUATORHardwareInterface"), "Successfully deactivated all ACTUATOR motors!");

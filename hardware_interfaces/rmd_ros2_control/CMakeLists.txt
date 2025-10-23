@@ -11,7 +11,7 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   rclcpp
   rclcpp_lifecycle
   realtime_tools
-  umdloop_theseus_can_messages
+  msgs
 )
 
 # find dependencies

@@ -27,7 +27,7 @@
 
 #include "controller_interface/controller_interface.hpp"
 #include "manual_arm_cylindrical_controller_parameters.hpp"
-#include "arm_controllers/visibility_control.h"
+#include "athena_arm_controllers/visibility_control.h"
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 #include "realtime_tools/realtime_buffer.h"
@@ -40,7 +40,7 @@
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "sensor_msgs/msg/joy.hpp"
 
-#include "arm_controllers/velocity_calculations.hpp"
+#include "athena_arm_controllers/velocity_calculations.hpp"
 
 namespace arm_controllers
 {

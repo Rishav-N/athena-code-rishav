@@ -29,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-#include "arm_controllers/manual_arm_joint_by_joint_controller.hpp"
+#include "athena_arm_controllers/manual_arm_joint_by_joint_controller.hpp"
 #include "gmock/gmock.h"
 #include "hardware_interface/loaned_command_interface.hpp"
 #include "hardware_interface/loaned_state_interface.hpp"

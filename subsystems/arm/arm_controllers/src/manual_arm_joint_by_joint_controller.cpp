@@ -18,7 +18,7 @@
 // [RosTeamWorkspace](https://github.com/StoglRobotics/ros_team_workspace) repository.
 //
 
-#include "arm_controllers/manual_arm_joint_by_joint_controller.hpp"
+#include "athena_arm_controllers/manual_arm_joint_by_joint_controller.hpp"
 
 #include <limits>
 #include <memory>

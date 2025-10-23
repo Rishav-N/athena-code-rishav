@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from .can_interface import CANInterface
-from umdloop_theseus_can_messages.msg import CANA
+from msgs.msg import CANA
 
 class CANNode(Node):
     def __init__(self):
