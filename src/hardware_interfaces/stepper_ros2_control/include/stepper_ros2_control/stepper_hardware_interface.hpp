@@ -16,8 +16,8 @@
 // Authors: Denis Stogl
 //
 
-#ifndef ACTUATOR_HARDWARE_INTERACE_HPP_
-#define ACTUATOR_HARDWARE_INTERACE_HPP_
+#ifndef STEPPER_HARDWARE_INTERFACE_HPP_
+#define STEPPER_HARDWARE_INTERFACE_HPP_
 
 #include <netinet/in.h>
 #include <memory>
@@ -40,12 +40,12 @@
 #include <rclcpp/subscription.hpp>
 #include "msgs/msg/cana.hpp"
 
-namespace actuator_ros2_control
+namespace stepper_ros2_control
 {
-class ACTUATORHardwareInterface : public hardware_interface::SystemInterface // Inheriting from System Interface
+class STEPPERHardwareInterface : public hardware_interface::SystemInterface // Inheriting from System Interface
 {
 public:
-  RCLCPP_SHARED_PTR_DEFINITIONS(ACTUATORHardwareInterface)
+  RCLCPP_SHARED_PTR_DEFINITIONS(STEPPERHardwareInterface)
 
   // Initialization, so reading parameters, initializing variables, checking if all the joint state and command interfaces are correct
   hardware_interface::CallbackReturn on_init(
@@ -57,11 +57,13 @@ public:
 
   std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
 
-  // Establish communications and set initial values for state and command interfaces
-  // hardware_interface::CallbackReturn on_configure(
-  //   const rclcpp_lifecycle::State & previous_state) override;
-
   // Lifecycle
+  hardware_interface::CallbackReturn on_configure(
+    const rclcpp_lifecycle::State & previous_state) override;
+
+  hardware_interface::CallbackReturn on_cleanup(
+    const rclcpp_lifecycle::State & previous_state) override;
+
   hardware_interface::CallbackReturn on_activate(
     const rclcpp_lifecycle::State & previous_state) override;
 
@@ -82,9 +84,20 @@ public:
   hardware_interface::return_type write(
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
+  // Helper Functions
+  double calculate_joint_position_from_motor_position(double motor_position, int gear_ratio);
+  double calculate_joint_velocity_from_motor_velocity(double motor_velocity, int gear_ratio);
+
+  int32_t calculate_motor_position_from_desired_joint_position(double joint_position, int gear_ratio);
+  int32_t calculate_motor_velocity_from_desired_joint_velocity(double joint_velocity, int gear_ratio);
+
 private:
 
   int num_joints;
+
+
+  // EXPERIMENTING
+  std::vector<double> initial_position_;
 
   // Store the state for the simulated robot
   std::vector<double> joint_state_position_;
@@ -95,16 +108,22 @@ private:
   std::vector<double> joint_command_velocity_;
 
   double encoder_position;
-  double motor_speed;
+  double motor_velocity;
+  double motor_position;
 
-  rclcpp::Publisher<msgs::msg::CANA>::SharedPtr actuator_can_publisher_;
-  rclcpp::Subscription<msgs::msg::CANA>::SharedPtr actuator_can_subscriber_;
+  std::vector<bool> joint_initialization_;
+
+  rclcpp::Publisher<msgs::msg::CANA>::SharedPtr science_can_publisher_;
+  rclcpp::Subscription<msgs::msg::CANA>::SharedPtr science_can_subscriber_;
   rclcpp::Node::SharedPtr node_;
+  uint16_t current_iteration;
+
 
   msgs::msg::CANA received_joint_data_;
 
-  std::vector<int> joint_node_ids;
   std::vector<int> joint_gear_ratios;
+  std::vector<int> joint_orientation;
+
 
 
   enum integration_level_t : std::uint8_t
@@ -119,7 +138,6 @@ private:
 
 };
 
-}  // namespace actuator_hardware_interface
+}  // namespace stepper_ros2_control
 
-#endif  // ACTUATOR_HARDWARE_INTERACE_HPP_
-
+#endif  // STEPPER_HARDWARE_INTERFACE_HPP_

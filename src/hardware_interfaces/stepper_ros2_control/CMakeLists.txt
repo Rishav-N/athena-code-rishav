@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(actuator_ros2_control)
+project(stepper_ros2_control)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -12,6 +12,7 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   rclcpp_lifecycle
   realtime_tools
   msgs
+  umdloop_can_library
 )
 
 # find dependencies
@@ -22,40 +23,49 @@ foreach(Dependency IN ITEMS ${THIS_PACKAGE_INCLUDE_DEPENDS})
   find_package(${Dependency} REQUIRED)
 endforeach()
 
+# umdloop_can_library is found through the dependency loop above
+
 ament_auto_find_build_dependencies()
 ament_export_dependencies(rosidl_default_runtime)
-
 
 include_directories(include)
 
 add_library(
-  actuator_ros2_control
+  stepper_ros2_control
   SHARED
-  src/actuator_hardware_interface.cpp
+  src/stepper_hardware_interface.cpp
 )
 
-target_compile_features(actuator_ros2_control PUBLIC cxx_std_20)
-target_include_directories(actuator_ros2_control PUBLIC
+target_compile_features(stepper_ros2_control PUBLIC cxx_std_20)
+target_include_directories(stepper_ros2_control PUBLIC
 $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-$<INSTALL_INTERFACE:include/actuator_ros2_control>
+$<INSTALL_INTERFACE:include/stepper_ros2_control>
 )
+
+# Link directly to umdloop_can_library target
+target_link_libraries(stepper_ros2_control PUBLIC umdloop_can_library::umdloop_can_library)
 
 ament_target_dependencies(
-  actuator_ros2_control PUBLIC
-  ${THIS_PACKAGE_INCLUDE_DEPENDS}
+  stepper_ros2_control PUBLIC
+  hardware_interface
+  pluginlib
+  rclcpp
+  rclcpp_lifecycle
+  realtime_tools
+  msgs
 )
 
 # Export hardware plugins
-pluginlib_export_plugin_description_file(hardware_interface actuator_hardware_interface.xml)
+pluginlib_export_plugin_description_file(hardware_interface stepper_hardware_interface.xml)
 
 # INSTALL
 install(
   DIRECTORY include/
-  DESTINATION include/actuator_ros2_control
+  DESTINATION include/stepper_ros2_control
 )
 
-install(TARGETS actuator_ros2_control
-  EXPORT export_actuator_ros2_control
+install(TARGETS stepper_ros2_control
+  EXPORT export_stepper_ros2_control
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
@@ -71,7 +81,7 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-ament_export_targets(export_actuator_ros2_control)
+ament_export_targets(export_stepper_ros2_control)
 ament_export_include_directories(include)
 ament_export_dependencies(${THIS_PACKAGE_INCLUDE_DEPENDS})
 ament_package()
