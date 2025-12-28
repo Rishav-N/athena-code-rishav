@@ -47,7 +47,7 @@ def generate_launch_description():
         ],
     )
     
-    return LaunchDescription([ß
+    return LaunchDescription([
         # Params
         DeclareLaunchArgument(
             'params_file', default_value=default_params,
