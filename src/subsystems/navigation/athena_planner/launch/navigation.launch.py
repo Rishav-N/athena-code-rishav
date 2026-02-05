@@ -19,7 +19,7 @@ def generate_launch_description():
     
     localizer_share = get_package_share_directory('localizer')
     localizer_launch_file = os.path.join(localizer_share, 'launch', 'localizer.launch.py')
-    
+
     default_params = PathJoinSubstitution([
         FindPackageShare('athena_planner'), 'config', 'nav2_params.yaml'
     ])
@@ -46,7 +46,20 @@ def generate_launch_description():
         }.items()
     )
 
-    
+    point_cloud_filterer_node = Node(
+        package='point_cloud_filterer',
+        executable='point_cloud_filtered',
+        name='point_cloud_filterer',
+        parameters=[{
+            'use_sim_time': True,
+            'input_topic': '/depth_camera/points',
+            'output_topic': '/depth_camera/points_corrected',
+            'frame_override': 'depth_camera_optical_frame'
+        }],
+        output='screen',
+        emulate_tty=True
+    )
+
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -63,6 +76,7 @@ def generate_launch_description():
 
         twist_stamper_node,
         localizer_launch,
+        point_cloud_filterer_node,
 
        #IncludeLaunchDescription(PythonLaunchDescriptionSource(dem_launch)),
 
