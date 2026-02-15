@@ -8,8 +8,7 @@
       <collision name="collision">
         <geometry>
           <heightmap>
-            <!-- <uri>model://1770928124579/textures/1770928124579_height_map_8bit.png</uri> -->
-            <uri>file:///home/rishavn/rishav_ws/ros_ws/src/athena-code/src/description/models/1770928124579/textures/hm_257.png</uri>
+            <uri>model://1770928124579/textures/1770928124579_height_map_8bit.png</uri>
             <size>719.62 716.62 21.6</size>
             <pos>0 0 0</pos>
             <sampling>1</sampling>
