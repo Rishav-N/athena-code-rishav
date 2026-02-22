@@ -182,7 +182,8 @@ def generate_launch_description():
         parameters=[robot_controllers],
         remappings=[
             ("~/robot_description", "/robot_description"),
-            ("/single_ackermann_controller/reference", "/joy"),
+            ("/single_ackermann_controller/reference", "/cmd_vel"),
+            ("/single_ackermann_controller/tf_odometry", "/tf"),
             ("/ackermann_steering_controller/reference", "/cmd_vel"),
         ],
     )
@@ -384,7 +385,7 @@ def generate_launch_description():
             robot_state_pub_node,
             joystick_publisher,
             teleop_twist_joy,
-            joint_state_publisher,
+            # joint_state_publisher,
             # delay_can_node_after_control_node,
             delay_joint_state_broadcaster_spawner_after_ros2_control_node,
             delay_rviz_after_joint_state_broadcaster_spawner,
