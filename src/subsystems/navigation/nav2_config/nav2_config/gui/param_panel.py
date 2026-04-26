@@ -1,0 +1,938 @@
+# Copyright 2025-2026 Sutharsan
+# SPDX-License-Identifier: Apache-2.0
+
+"""ParamPanel — center panel: scrollable, searchable parameter editor.
+
+Styled to match RViz2's Properties panel: two-column tree layout with
+light gray headers, collapsible category sections.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Any
+
+from PyQt6.QtCore import Qt, QSize, QRect, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QKeySequence, QShortcut
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
+from nav2_config.types.params import ParamValue
+from nav2_config.gui.widgets.param_row import ParamRow
+from nav2_config.core.node_discovery import path_basename
+try:
+    from nav2_config.core.robot_mode_detector import RobotMode
+    _ROBOT_MODE_AVAILABLE = True
+except ImportError:
+    RobotMode = None  # type: ignore[assignment,misc]
+    _ROBOT_MODE_AVAILABLE = False
+
+if TYPE_CHECKING:
+    from nav2_config.core.topic_discovery import TopicDiscovery
+    from nav2_config.core.frame_discovery import FrameDiscovery
+    from nav2_config.core.node_discovery import DiscoveredNav2Node
+
+logger = logging.getLogger(__name__)
+
+# ── RViz2 light colour constants ─────────────────────────────────────────────
+_BG_PANEL = '#e8e8e8'
+_BG_HDR   = '#d0d0d0'
+_BG_CAT   = '#e0e0e0'   # Category section header background
+_BORDER   = '#c0c0c0'
+_BLUE     = '#3399ff'
+_FG       = '#1a1a1a'
+_FG_DIM   = '#666666'
+_AMBER    = '#ff9800'
+
+#: Number of parameter categories to create widgets for per Qt event-loop tick.
+_LOAD_BATCH_SIZE: int = 5
+
+
+# ── Lifecycle control bar ─────────────────────────────────────────────────────
+
+_STATE_TRANSITIONS: dict[str, list[str]] = {
+    'unconfigured': ['configure'],
+    'inactive':     ['activate', 'cleanup', 'shutdown'],
+    'active':       ['deactivate', 'shutdown'],
+}
+
+_ACTION_LABELS: dict[str, str] = {
+    'configure':  'Configure',
+    'activate':   'Activate',
+    'deactivate': 'Deactivate',
+    'cleanup':    'Cleanup',
+    'shutdown':   'Shutdown',
+}
+
+_STATE_COLORS: dict[str, str] = {
+    'active':       '#4caf50',
+    'inactive':     '#ff9800',
+    'unconfigured': '#999999',
+    'finalized':    '#e53935',
+}
+
+_LC_BTN_STYLE = (
+    'QPushButton {'
+    '  background: #e8e8e8;'
+    '  border: 1px solid #c0c0c0;'
+    '  color: #1a1a1a;'
+    '  font-size: 8pt;'
+    '  padding: 1px 7px;'
+    '}'
+    'QPushButton:hover { background: #d4d4d4; }'
+)
+
+
+class _StateBadge(QWidget):
+    """Small colored pill showing lifecycle state text."""
+
+    _H = 16
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._state = ''
+        self._color = QColor('#999999')
+        self.setFixedHeight(self._H)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def set_state(self, state: str) -> None:
+        self._state = state
+        self._color = QColor(_STATE_COLORS.get(state, '#999999'))
+        self.setFixedWidth(max(50, len(state) * 7 + 12))
+        self.update()
+
+    def paintEvent(self, _event) -> None:  # type: ignore[override]
+        if not self._state:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setBrush(self._color)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawRoundedRect(0, 1, self.width(), self._H - 2, 4, 4)
+        p.setPen(QColor('#ffffff'))
+        from PyQt6.QtGui import QFont
+        p.setFont(QFont('Ubuntu', 7, QFont.Weight.Bold))
+        p.drawText(QRect(0, 1, self.width(), self._H - 2),
+                   Qt.AlignmentFlag.AlignCenter, self._state)
+        p.end()
+
+
+class _LifecycleBar(QWidget):
+    """Shown above the param list when a node is selected.
+
+    Displays the node's current lifecycle state and action buttons for valid
+    transitions.  When lifecycle_manager is running, direct transition buttons
+    are hidden entirely — only the state badge is shown with a note directing
+    the user to the stack controls in the left panel.
+    """
+
+    action_requested = pyqtSignal(str)  # action name: 'activate', 'deactivate', etc.
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._node_path: str = ''
+        self._display_name: str = ''
+        self._stack_namespace: str = '/'
+        self._state: str = ''
+        self._stack_has_manager: bool = False
+        self._expert_mode: bool = False
+        self._build_ui()
+        self.hide()
+
+    def _build_ui(self) -> None:
+        self.setFixedHeight(30)
+        self.setStyleSheet(
+            'QWidget { background: #eaf0fa; border-bottom: 1px solid #c0c0c0; }'
+        )
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 0, 8, 0)
+        layout.setSpacing(6)
+
+        self._node_lbl = QLabel()
+        self._node_lbl.setStyleSheet(
+            'color: #1a1a1a; font-size: 8pt; font-weight: bold; background: transparent;'
+        )
+        layout.addWidget(self._node_lbl)
+
+        self._badge = _StateBadge()
+        layout.addWidget(self._badge)
+
+        # Managed-by-lifecycle_manager note (shown when lc_manager present)
+        self._managed_lbl = QLabel('managed by lifecycle_manager — use stack controls')
+        self._managed_lbl.setStyleSheet(
+            'color: #666666; font-size: 8pt; font-style: italic; background: transparent;'
+        )
+        layout.addWidget(self._managed_lbl)
+
+        # Transition buttons (hidden when lifecycle_manager present)
+        self._btn_container = QWidget()
+        self._btn_container.setStyleSheet('background: transparent;')
+        btn_layout = QHBoxLayout(self._btn_container)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(4)
+        self._buttons: dict[str, QPushButton] = {}
+        for action, label in _ACTION_LABELS.items():
+            btn = QPushButton(label)
+            btn.setFixedHeight(20)
+            btn.setStyleSheet(_LC_BTN_STYLE)
+            btn.clicked.connect(
+                lambda _checked, a=action: self.action_requested.emit(a)
+            )
+            btn_layout.addWidget(btn)
+            self._buttons[action] = btn
+        layout.addWidget(self._btn_container)
+
+        layout.addStretch()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def set_node(
+        self,
+        node_path: str,
+        display_name: str,
+        stack_namespace: str,
+        state: str,
+        stack_has_manager: bool,
+    ) -> None:
+        """Update the bar for the currently selected node."""
+        self._node_path = node_path
+        self._display_name = display_name
+        self._stack_namespace = stack_namespace
+        self._state = state
+        self._stack_has_manager = stack_has_manager
+
+        self._node_lbl.setText(display_name)
+        self._badge.set_state(state)
+
+        if stack_has_manager and not self._expert_mode:
+            self._btn_container.hide()
+            self._managed_lbl.show()
+        else:
+            self._managed_lbl.hide()
+            self._btn_container.show()
+            valid = _STATE_TRANSITIONS.get(state, [])
+            for action, btn in self._buttons.items():
+                btn.setVisible(action in valid)
+
+        self.show()
+
+    def set_expert_mode(self, enabled: bool) -> None:
+        """Toggle expert mode — refresh visibility of transition buttons."""
+        self._expert_mode = enabled
+        if self._node_path:
+            self.set_node(
+                self._node_path, self._display_name, self._stack_namespace,
+                self._state, self._stack_has_manager,
+            )
+
+    def clear(self) -> None:
+        """Hide the bar when no node is selected."""
+        self._node_path = ''
+        self.hide()
+
+
+# ── Category sections ─────────────────────────────────────────────────────────
+
+class _CategorySection(QWidget):
+    """Collapsible section grouping ParamRow widgets under a category header.
+
+    Header looks like RViz2's group rows: slightly darker background,
+    expand arrow, category name, row count in dim text.
+    """
+
+    toggled = pyqtSignal(str, bool)  # (category, expanded)
+
+    def __init__(self, category: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._category = category
+        self._expanded = False  # collapsed by default
+        self._rows: list[ParamRow] = []
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Header is a clickable container with two labels side by side
+        self._header = QWidget()
+        self._header.setFixedHeight(24)
+        self._header.setStyleSheet(
+            f'QWidget {{ '
+            f'    background: {_BG_CAT}; '
+            f'    border-bottom: 1px solid {_BORDER}; '
+            f'    border-top: 1px solid {_BORDER}; '
+            f'}}'
+        )
+        self._header.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._header.mousePressEvent = lambda _e: self._toggle()
+
+        hdr_layout = QHBoxLayout(self._header)
+        hdr_layout.setContentsMargins(8, 0, 8, 0)
+        hdr_layout.setSpacing(4)
+
+        self._name_label = QLabel()
+        self._name_label.setStyleSheet(
+            f'color: {_FG}; font-size: 10pt; font-weight: bold; background: transparent;'
+        )
+        hdr_layout.addWidget(self._name_label)
+
+        self._count_lbl = QLabel()
+        self._count_lbl.setStyleSheet(
+            f'color: {_FG_DIM}; font-size: 10pt; font-weight: normal; background: transparent;'
+        )
+        hdr_layout.addWidget(self._count_lbl)
+        hdr_layout.addStretch()
+
+        layout.addWidget(self._header)
+
+        self._content = QWidget()
+        self._content_layout = QVBoxLayout(self._content)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(0)
+        layout.addWidget(self._content)
+
+        self._refresh_header()
+        self._content.setVisible(False)  # start collapsed
+
+    def _refresh_header(self) -> None:
+        arrow = '▾' if self._expanded else '▸'
+        self._name_label.setText(f'{arrow}  {self._category.replace("_", " ").title()}')
+        self._count_lbl.setText(f'({len(self._rows)})')
+
+    def _toggle(self) -> None:
+        self._expanded = not self._expanded
+        self._content.setVisible(self._expanded)
+        self._refresh_header()
+        self.toggled.emit(self._category, self._expanded)
+
+    def set_expanded(self, expanded: bool) -> None:
+        """Programmatically expand or collapse without emitting the toggled signal."""
+        self._expanded = expanded
+        self._content.setVisible(expanded)
+        self._refresh_header()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def add_row(self, row: ParamRow) -> None:
+        """Append a ParamRow to this section with alternating background."""
+        idx = len(self._rows)
+        row.set_row_index(idx)
+        self._rows.append(row)
+        self._content_layout.addWidget(row)
+        self._refresh_header()
+
+    def apply_filter(self, query: str) -> int:
+        """Show/hide rows based on *query*. Returns the count of visible rows."""
+        visible = 0
+        for row in self._rows:
+            matches = row.matches_search(query)
+            row.setVisible(matches)
+            if matches:
+                visible += 1
+        self.setVisible(visible > 0)
+        return visible
+
+    def apply_plugin_filter(self, plugin: str | None) -> None:
+        """Show/hide rows based on the selected plugin (None = show all)."""
+        for row in self._rows:
+            if plugin is None:
+                row.setVisible(True)
+            else:
+                defn = row._param_value.definition
+                row.setVisible((not defn.plugin_specific) or defn.plugin == plugin)
+
+    def set_descriptions_visible(self, visible: bool) -> None:
+        """Toggle description text visibility on all rows in this section."""
+        for row in self._rows:
+            row.set_description_visible(visible)
+
+    @property
+    def rows(self) -> list[ParamRow]:
+        return self._rows
+
+
+class _RealRobotWarningBanner(QWidget):
+    """Amber banner warning that parameter changes apply immediately to a real robot.
+
+    Shown only when :attr:`RobotMode.REAL` is detected.  Has an X button that
+    dismisses it for the current session.  Dismissed state resets when mode
+    transitions back to UNKNOWN (i.e. when the connection drops and comes back).
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._dismissed: bool = False
+        self._build_ui()
+        self.setVisible(False)
+
+    def _build_ui(self) -> None:
+        self.setStyleSheet(
+            'QWidget { background: #fff8e1; border-bottom: 1px solid #ffc107; }'
+        )
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(6)
+
+        icon = QLabel('⚠')
+        icon.setStyleSheet('font-size: 11pt; color: #f57c00; background: transparent;')
+        layout.addWidget(icon)
+
+        msg = QLabel('Connected to real robot — parameter changes apply immediately')
+        msg.setStyleSheet(
+            'color: #5d4037; font-size: 9pt; font-weight: bold; background: transparent;'
+        )
+        layout.addWidget(msg)
+        layout.addStretch()
+
+        dismiss = QPushButton('✕')
+        dismiss.setFixedSize(16, 16)
+        dismiss.setFlat(True)
+        dismiss.setToolTip('Dismiss this warning for the current session')
+        dismiss.setStyleSheet(
+            'QPushButton { color: #795548; font-size: 9pt; background: transparent; '
+            '              border: none; padding: 0; }'
+            'QPushButton:hover { color: #4e342e; }'
+        )
+        dismiss.clicked.connect(self._on_dismiss)
+        layout.addWidget(dismiss)
+
+    def _on_dismiss(self) -> None:
+        self._dismissed = True
+        self.setVisible(False)
+
+    def set_mode(self, mode: object) -> None:
+        """Show or hide the banner based on *mode*.
+
+        Resets the dismissed flag when mode returns to UNKNOWN so the banner
+        reappears after a reconnect cycle (REAL → UNKNOWN → REAL).
+        """
+        if not _ROBOT_MODE_AVAILABLE or mode is None:
+            self.setVisible(False)
+            return
+        if mode.name == 'UNKNOWN':
+            # Connection lost — reset so the banner re-appears on reconnect.
+            self._dismissed = False
+            self.setVisible(False)
+        elif mode.name == 'REAL':
+            self.setVisible(not self._dismissed)
+        else:
+            self.setVisible(False)
+
+
+class ParamPanel(QWidget):
+    """Center panel: scrollable, searchable parameter editor with category grouping.
+
+    Displays the parameters of one Nav2 node at a time.
+
+    Signals:
+        param_change_requested(str, str, Any):
+            ``(node_name, param_name, new_value)`` — emitted on every GUI
+            value change, used to keep the YAML preview current.  Does NOT
+            trigger a ROS2 set_parameters call.
+        param_set_requested(str, str, Any):
+            ``(node_name, param_name, value)`` — emitted when the user
+            explicitly clicks a row's Set button or the "Set All" button.
+            The main window routes this to the ROS2 node.
+    """
+
+    param_change_requested    = pyqtSignal(str, str, object)
+    param_set_requested       = pyqtSignal(str, str, object)
+    lifecycle_action_requested = pyqtSignal(str, str)  # (node_path, action)
+
+    def __init__(
+        self,
+        topic_discovery: 'TopicDiscovery | None' = None,
+        frame_discovery: 'FrameDiscovery | None' = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._node_name: str = ''
+        self._selected_node: 'DiscoveredNav2Node | None' = None
+        self._param_values: list[ParamValue] = []
+        self._sections: dict[str, _CategorySection] = {}
+        self._all_rows: list[ParamRow] = []
+        self._show_descriptions: bool = False
+        self._topic_discovery = topic_discovery
+        self._frame_discovery = frame_discovery
+        # per-node memory: {node_name -> set of expanded category names}
+        self._expanded_categories: dict[str, set[str]] = {}
+        # pre-search snapshot of expanded state (None = not in search mode)
+        self._pre_search_expanded: set[str] | None = None
+        self._lc_bar: _LifecycleBar | None = None
+        # State for deferred (batched) widget creation in load_params.
+        self._pending_load_categories: list[tuple[str, list]] = []
+        self._pending_load_remembered: set[str] = set()
+        self._build_ui()
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        layout.addWidget(self._make_title_bar())
+
+        self._lc_bar = _LifecycleBar()
+        self._lc_bar.action_requested.connect(self._on_lc_action)
+        layout.addWidget(self._lc_bar)
+
+        self._real_robot_banner = _RealRobotWarningBanner()
+        layout.addWidget(self._real_robot_banner)
+
+        # Scroll area for the parameter rows
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self._scroll_content = QWidget()
+        self._scroll_layout = QVBoxLayout(self._scroll_content)
+        self._scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self._scroll_layout.setSpacing(0)
+        self._scroll_layout.addStretch()
+
+        self._scroll_area.setWidget(self._scroll_content)
+        layout.addWidget(self._scroll_area, stretch=1)
+
+    def _make_title_bar(self) -> QWidget:
+        """Header bar: title left, Set All + search + Desc toggle right."""
+        bar = QWidget()
+        bar.setFixedHeight(28)
+        bar.setStyleSheet(
+            f'QWidget {{ background: {_BG_HDR}; border-bottom: 1px solid {_BORDER}; }}'
+        )
+
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(8, 0, 4, 0)
+        layout.setSpacing(4)
+
+        self._title_label = QLabel('Parameters')
+        self._title_label.setStyleSheet(
+            f'color: {_FG}; font-size: 10pt; font-weight: bold; background: transparent;'
+        )
+        self._title_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self._title_label)
+
+        self._count_label = QLabel('')
+        self._count_label.setStyleSheet(
+            f'color: {_FG_DIM}; font-size: 9pt; background: transparent;'
+        )
+        self._count_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self._count_label)
+
+        layout.addStretch()
+
+        # "Set All (N)" button — enabled only when ≥1 row is ready to set
+        self._set_all_btn = QPushButton('Set All')
+        self._set_all_btn.setEnabled(False)
+        self._set_all_btn.setFixedHeight(20)
+        self._set_all_btn.setToolTip('Set all modified parameters at once')
+        self._set_all_btn.setStyleSheet(
+            f'QPushButton {{ background: #e0e0e0; border: 1px solid {_BORDER}; '
+            f'color: #999999; font-size: 9pt; padding: 0 6px; }}'
+            f'QPushButton:enabled {{ background: #2a82da; border-color: #1a6abf; '
+            f'color: #ffffff; font-weight: bold; }}'
+            f'QPushButton:enabled:hover {{ background: #1e70c8; }}'
+        )
+        self._set_all_btn.clicked.connect(self._set_all_modified)
+        layout.addWidget(self._set_all_btn)
+
+        # Inline search field in the header
+        self._search = QLineEdit()
+        self._search.setPlaceholderText('Search…')
+        self._search.setFixedWidth(160)
+        self._search.setFixedHeight(20)
+        self._search.setStyleSheet(
+            f'QLineEdit {{ background: {_BG_PANEL}; border: 1px solid {_BORDER}; '
+            f'color: {_FG}; font-size: 9pt; padding: 0 4px; }}'
+            f'QLineEdit:focus {{ border-color: {_BLUE}; }}'
+        )
+        self._search.textChanged.connect(self._on_search_changed)
+        layout.addWidget(self._search)
+
+        shortcut = QShortcut(QKeySequence('Ctrl+K'), self)
+        shortcut.activated.connect(self._search.setFocus)
+        escape = QShortcut(QKeySequence('Escape'), self)
+        escape.activated.connect(self._clear_search)
+
+        # "Expand All / Collapse All" toggle
+        self._expand_all_btn = QPushButton('⊞ All')
+        self._expand_all_btn.setCheckable(True)
+        self._expand_all_btn.setChecked(False)
+        self._expand_all_btn.setFixedHeight(20)
+        self._expand_all_btn.setToolTip('Expand all categories / Collapse all categories')
+        self._expand_all_btn.setStyleSheet(
+            f'QPushButton {{ background: #e0e0e0; border: 1px solid {_BORDER}; '
+            f'color: {_FG}; font-size: 9pt; padding: 0 6px; }}'
+            f'QPushButton:checked {{ background: {_BLUE}; border-color: #1a6abf; '
+            f'color: #ffffff; }}'
+            f'QPushButton:hover:!checked {{ background: #d4d4d4; }}'
+        )
+        self._expand_all_btn.toggled.connect(self._on_expand_all_toggled)
+        layout.addWidget(self._expand_all_btn)
+
+        # "Desc" toggle button
+        self._desc_btn = QPushButton('Desc')
+        self._desc_btn.setCheckable(True)
+        self._desc_btn.setChecked(False)
+        self._desc_btn.setFixedHeight(20)
+        self._desc_btn.setToolTip('Toggle parameter descriptions')
+        self._desc_btn.setStyleSheet(
+            f'QPushButton {{ background: #555555; border: 1px solid {_BORDER}; '
+            f'color: {_FG}; font-size: 9pt; padding: 0 6px; }}'
+            f'QPushButton:checked {{ background: {_BLUE}; border-color: #1a6abf; '
+            f'color: #ffffff; }}'
+            f'QPushButton:hover:!checked {{ background: #666666; }}'
+        )
+        self._desc_btn.toggled.connect(self._on_toggle_descriptions)
+        layout.addWidget(self._desc_btn)
+
+        return bar
+
+    # ------------------------------------------------------------------
+    # Lifecycle bar — public API and private slot
+    # ------------------------------------------------------------------
+
+    def update_lifecycle_state(
+        self, node_path: str, state: str, stack_has_manager: bool
+    ) -> None:
+        """Refresh the lifecycle bar for *node_path* if it is currently shown."""
+        if self._lc_bar is None:
+            return
+        if node_path and node_path == self._node_name:
+            if self._selected_node is not None:
+                display_name = self._selected_node.display_name
+                stack_namespace = self._selected_node.stack_namespace
+            else:
+                display_name = path_basename(node_path).replace('_', ' ').title()
+                stack_namespace = '/'
+            self._lc_bar.set_node(
+                node_path, display_name, stack_namespace, state, stack_has_manager
+            )
+
+    def clear_lifecycle_bar(self) -> None:
+        """Hide the lifecycle bar (called when no node is selected)."""
+        if self._lc_bar is not None:
+            self._lc_bar.clear()
+
+    def set_expert_mode(self, enabled: bool) -> None:
+        """Pass expert mode down to the lifecycle bar."""
+        if self._lc_bar is not None:
+            self._lc_bar.set_expert_mode(enabled)
+
+    def set_robot_mode(self, mode: object) -> None:
+        """Update the real-robot warning banner visibility for *mode*.
+
+        Args:
+            mode: A :class:`~nav2_config.core.robot_mode_detector.RobotMode`
+                enum value, or ``None`` when the feature is unavailable.
+        """
+        self._real_robot_banner.set_mode(mode)
+
+    def _on_lc_action(self, action: str) -> None:
+        """Forward a lifecycle button click to MainWindow via signal."""
+        if self._node_name:
+            self.lifecycle_action_requested.emit(self._node_name, action)
+
+    # ------------------------------------------------------------------
+    # Private: filtering and description toggle
+    # ------------------------------------------------------------------
+
+    def _on_toggle_descriptions(self, checked: bool) -> None:
+        """Show or hide description lines on all param rows."""
+        self._show_descriptions = checked
+        for section in self._sections.values():
+            section.set_descriptions_visible(checked)
+
+    def filter_params(self, query: str) -> None:
+        """Apply a search filter from an external widget (e.g., toolbar search box)."""
+        self._search.setText(query)
+
+    def _clear_search(self) -> None:
+        if self._search.text():
+            self._search.clear()
+
+    def _on_search_changed(self, query: str) -> None:
+        total_visible = 0
+        if query:
+            # Save collapsed state on first keystroke, then expand all matching sections
+            if self._pre_search_expanded is None:
+                self._pre_search_expanded = {
+                    cat for cat, sec in self._sections.items() if sec._expanded
+                }
+            for section in self._sections.values():
+                count = section.apply_filter(query)
+                if count > 0:
+                    section.set_expanded(True)
+                total_visible += count
+            total_all = len(self._all_rows)
+            self._count_label.setText(f'{total_visible}/{total_all}')
+        else:
+            # Restore pre-search collapsed state
+            pre = self._pre_search_expanded or set()
+            for cat, section in self._sections.items():
+                section.apply_filter('')
+                section.set_expanded(cat in pre)
+            self._pre_search_expanded = None
+            self._refresh_count_label()
+
+    def _on_section_toggled(self, category: str, expanded: bool) -> None:
+        """Remember which categories are open for the current node."""
+        node_set = self._expanded_categories.setdefault(self._node_name, set())
+        if expanded:
+            node_set.add(category)
+        else:
+            node_set.discard(category)
+
+    def _on_expand_all_toggled(self, checked: bool) -> None:
+        """Expand or collapse all category sections at once."""
+        self._expand_all_btn.setText('⊟ All' if checked else '⊞ All')
+        for section in self._sections.values():
+            section.set_expanded(checked)
+        # Update remembered state to match
+        node_set = self._expanded_categories.setdefault(self._node_name, set())
+        if checked:
+            node_set.update(self._sections.keys())
+        else:
+            node_set.clear()
+
+    def _refresh_count_label(self) -> None:
+        modified = sum(1 for pv in self._param_values if pv.is_modified)
+        n = len(self._param_values)
+        if n:
+            mod_part = f'  ·  {modified} modified' if modified else ''
+            self._count_label.setText(f'{n} params{mod_part}')
+        else:
+            self._count_label.setText('')
+
+    def _update_set_all_btn(self) -> None:
+        """Refresh the Set All button label and enabled state."""
+        count = sum(1 for row in self._all_rows if row.is_ready_to_set())
+        if count > 0:
+            self._set_all_btn.setText(f'Set All ({count})')
+            self._set_all_btn.setEnabled(True)
+        else:
+            self._set_all_btn.setText('Set All')
+            self._set_all_btn.setEnabled(False)
+
+    # ------------------------------------------------------------------
+    # Private: row rebuild
+    # ------------------------------------------------------------------
+
+    def _clear_rows(self) -> None:
+        self._pending_load_categories = []   # cancel in-progress deferred load
+        layout = self._scroll_layout
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._sections = {}
+        self._all_rows = []
+
+    # ------------------------------------------------------------------
+    # Private: "Set All" handler
+    # ------------------------------------------------------------------
+
+    def _set_all_modified(self) -> None:
+        """Trigger set on every row that is currently in READY or FAILED state."""
+        for row in self._all_rows:
+            if row.is_ready_to_set():
+                row.trigger_set()
+        self._update_set_all_btn()
+
+    # ------------------------------------------------------------------
+    # Public slots
+    # ------------------------------------------------------------------
+
+    def set_selected_node(self, node: 'DiscoveredNav2Node') -> None:
+        """Update the panel title and lifecycle bar context for the selected node."""
+        self._node_name = node.full_path
+        self._selected_node = node
+        self._title_label.setText(f'Parameters  —  {node.display_name}')
+        self._count_label.setText(
+            f'<span style="color:#999; font-size:8pt;">{node.full_path}</span>'
+        )
+
+    def set_node_name(self, node_name: str) -> None:
+        """Update the panel title to reflect the selected node."""
+        self._node_name = node_name
+        self._selected_node = None
+        display = path_basename(node_name).replace('_', ' ').title()
+        self._title_label.setText(f'Parameters  —  {display}')
+
+    def load_params(self, params: list[ParamValue]) -> None:
+        """Rebuild the parameter rows for the given list of ParamValue objects.
+
+        Widget creation is deferred across Qt event-loop ticks in batches of
+        _LOAD_BATCH_SIZE categories so that the UI stays responsive while
+        loading large nodes (local_costmap, global_costmap, etc.).
+        """
+        self._clear_rows()
+        self._param_values = params
+        self._search.clear()
+
+        if not params:
+            self._count_label.setText('No parameters')
+            self._update_set_all_btn()
+            return
+
+        categories: dict[str, list[ParamValue]] = {}
+        for pv in params:
+            categories.setdefault(pv.definition.category, []).append(pv)
+
+        self._scroll_layout.takeAt(self._scroll_layout.count() - 1)
+
+        remembered = self._expanded_categories.get(self._node_name, set())
+        self._expand_all_btn.blockSignals(True)
+        self._expand_all_btn.setChecked(False)
+        self._expand_all_btn.setText('⊞ All')
+        self._expand_all_btn.blockSignals(False)
+        self._pre_search_expanded = None
+
+        self._pending_load_categories = sorted(categories.items())
+        self._pending_load_remembered = remembered
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._load_next_batch)
+
+    def _load_next_batch(self) -> None:
+        """Process one batch of categories; reschedule if more remain."""
+        batch = self._pending_load_categories[:_LOAD_BATCH_SIZE]
+        self._pending_load_categories = self._pending_load_categories[_LOAD_BATCH_SIZE:]
+
+        for category, pvs in batch:
+            section = _CategorySection(category)
+            for pv in sorted(pvs, key=lambda p: p.definition.param):
+                row = ParamRow(
+                    pv,
+                    show_description=self._show_descriptions,
+                    topic_discovery=self._topic_discovery,
+                    frame_discovery=self._frame_discovery,
+                )
+                row.param_changed.connect(self._on_param_changed)
+                row.param_set_requested.connect(self._on_row_set_requested)
+                section.add_row(row)
+                self._all_rows.append(row)
+            if category in self._pending_load_remembered:
+                section.set_expanded(True)
+            section.toggled.connect(self._on_section_toggled)
+            self._sections[category] = section
+            self._scroll_layout.addWidget(section)
+
+        if self._pending_load_categories:
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self._load_next_batch)
+        else:
+            self._scroll_layout.addStretch()
+            self._refresh_count_label()
+            self._update_set_all_btn()
+            logger.debug(
+                'ParamPanel: loaded %d params in %d categories',
+                len(self._param_values), len(self._sections),
+            )
+
+    def update_set_result(self, param_name: str, success: bool) -> None:
+        """Route a ROS2 set_parameters result to the matching row's Set button."""
+        for row in self._all_rows:
+            if row._param_value.definition.param == param_name:
+                row.receive_set_result(success)
+                break
+        self._update_set_all_btn()
+
+    def mark_param_file_saved(self, param_name: str) -> None:
+        """Mark *param_name* as saved to the config file (non-hot-reload).
+
+        Transitions the matching row's Set button to the amber SAVED_FILE state
+        to indicate the value is queued for the next Nav2 restart.
+        """
+        for row in self._all_rows:
+            if row._param_value.definition.param == param_name:
+                row.receive_file_save_result()
+                break
+        self._update_set_all_btn()
+
+    def update_file_values(self, file_values: dict[str, object]) -> None:
+        """Update the file-vs-live indicator on all rows.
+
+        Args:
+            file_values: Mapping of ``param_name -> file_value`` from the
+                loaded nav2_params.yaml.  Missing keys mean the param is
+                absent from the file.
+        """
+        for row in self._all_rows:
+            param_name = row._param_value.definition.param
+            fv = file_values.get(param_name)
+            row.update_file_value(fv)
+
+    def update_param_value(self, param_name: str, value: Any) -> None:
+        """Apply a live-updated value to the matching param row."""
+        for row in self._all_rows:
+            if row._param_value.definition.param == param_name:
+                row.set_value(value)
+                break
+
+    def highlight_external_change(self, param_name: str) -> None:
+        """Flash a param row with RViz2 blue to indicate an externally-set change."""
+        from PyQt6.QtCore import QTimer
+        for row in self._all_rows:
+            if row._param_value.definition.param == param_name:
+                row.setStyleSheet('QWidget { background: #3399ff33; }')
+                QTimer.singleShot(1500, lambda r=row: r.restore_row_bg())
+                break
+
+    def scroll_to_param(self, param_name: str) -> None:
+        """Scroll the parameter list to the row matching *param_name*."""
+        for section in self._sections.values():
+            for row in section.rows:
+                if row._param_value.definition.param == param_name:
+                    if not section._expanded:
+                        section._toggle()
+                    self._scroll_area.ensureWidgetVisible(row)
+                    return
+
+    def refresh_dropdowns(self) -> None:
+        """Refresh all topic and frame selector dropdowns in the current view."""
+        for row in self._all_rows:
+            row.refresh_discovery_widget()
+
+    def pending_param_names(self) -> set[str]:
+        """Return the set of param names that have pending (unsent) changes."""
+        return {
+            row._param_value.definition.param
+            for row in self._all_rows
+            if row._param_value.is_pending
+        }
+
+    def _on_param_changed(self, param_name: str, value: Any) -> None:
+        """Called when any row's displayed value changes (before Set is clicked)."""
+        self.param_change_requested.emit(self._node_name, param_name, value)
+        self._refresh_count_label()
+        self._update_set_all_btn()
+        # Auto-expand the category containing the modified param so it's visible
+        for cat, section in self._sections.items():
+            for row in section.rows:
+                if row._param_value.definition.param == param_name:
+                    if not section._expanded:
+                        section.set_expanded(True)
+                        self._expanded_categories.setdefault(
+                            self._node_name, set()
+                        ).add(cat)
+                    return
+
+    def _on_row_set_requested(self, param_name: str, value: object) -> None:
+        """Called when a row's Set button is clicked; forwards to the main window."""
+        self.param_set_requested.emit(self._node_name, param_name, value)
+        self._update_set_all_btn()
