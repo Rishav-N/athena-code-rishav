@@ -1,6 +1,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.conditions import IfCondition
 from launch.substitutions import (
     Command,
     FindExecutable,
@@ -23,6 +24,7 @@ def generate_launch_description():
     use_dem           = LaunchConfiguration('use_dem')
     use_respawn       = LaunchConfiguration('use_respawn')
     log_level         = LaunchConfiguration('log_level')
+    use_config        = LaunchConfiguration('use_config')
 
     use_localizer = PythonExpression(
         ["'false' if '", use_zed_localizer, "' == 'true' else 'true'"]
@@ -50,6 +52,10 @@ def generate_launch_description():
     navigation_launch_file = os.path.join(
         get_package_share_directory('athena_planner'), 'launch', 'navigation.launch.py'
     )
+    
+    nav2_config_launch_file = os.path.join(
+        get_package_share_directory('nav2_config'), 'launch', 'main.launch.py'
+    )
 
     default_params = PathJoinSubstitution([
         FindPackageShare('athena_planner'), 'config', 'nav2_params.yaml'
@@ -66,6 +72,11 @@ def generate_launch_description():
             'use_localizer': use_localizer,
             'enable_gnss':   enable_gnss,
         }.items(),
+    )
+    
+    nav2_config_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(nav2_config_launch_file),
+        condition=IfCondition(LaunchConfiguration('use_config'))
     )
 
     return LaunchDescription([
@@ -107,7 +118,14 @@ def generate_launch_description():
             default_value='info',
             description='Log level for nav2 nodes',
         ),
+        DeclareLaunchArgument(
+            'use_config',
+            default_value='false',
+            choices=['true', 'false'],
+            description='Use nav2_config GUI',
+        ),
 
         robot_state_publisher,
         navigation_launch,
+        nav2_config_launch,
     ])
