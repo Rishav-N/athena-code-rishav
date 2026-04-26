@@ -29,6 +29,8 @@ def generate_launch_description():
     use_localizer = PythonExpression(
         ["'false' if '", use_zed_localizer, "' == 'true' else 'true'"]
     )
+    
+    
 
     robot_description_content = Command([
         PathJoinSubstitution([FindExecutable(name='xacro')]),
@@ -48,13 +50,17 @@ def generate_launch_description():
             'use_sim_time': sim,
         }],
     )
+    
+    config_gui = Node(
+        package='nav2_config',
+        executable='gui',  
+        name='nav2_config_gui',
+        output='screen',
+        condition=IfCondition(use_config),
+    )
 
     navigation_launch_file = os.path.join(
         get_package_share_directory('athena_planner'), 'launch', 'navigation.launch.py'
-    )
-    
-    nav2_config_launch_file = os.path.join(
-        get_package_share_directory('nav2_config'), 'launch', 'main.launch.py'
     )
 
     default_params = PathJoinSubstitution([
@@ -72,11 +78,6 @@ def generate_launch_description():
             'use_localizer': use_localizer,
             'enable_gnss':   enable_gnss,
         }.items(),
-    )
-    
-    nav2_config_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(nav2_config_launch_file),
-        condition=IfCondition(LaunchConfiguration('use_config'))
     )
 
     return LaunchDescription([
@@ -122,10 +123,10 @@ def generate_launch_description():
             'use_config',
             default_value='false',
             choices=['true', 'false'],
-            description='Use nav2_config GUI',
+            description='Launch the Nav2 config GUI',
         ),
-
+    
         robot_state_publisher,
         navigation_launch,
-        nav2_config_launch,
+        config_gui,
     ])
