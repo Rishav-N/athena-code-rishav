@@ -34,10 +34,12 @@ BT::NodeStatus LedStatusNode::tick()
   msg.param = 0;
 
   if (color == "red" || color == "RED") {
+    msg.cmd = msgs::msg::LedStatus::CMD_SOLID;
     msg.r = 255;
     msg.g = 0;
     msg.b = 0;
   } else if (color == "green" || color == "GREEN") {
+    msg.cmd = msgs::msg::LedStatus::CMD_FLASH;
     msg.r = 0;
     msg.g = 255;
     msg.b = 0;
