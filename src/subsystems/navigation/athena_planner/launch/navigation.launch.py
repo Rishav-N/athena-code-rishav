@@ -135,7 +135,7 @@ def generate_launch_description():
         }],
         output='screen',
         emulate_tty=True,
-        condition=UnlessCondition(sim),
+        condition=IfCondition(sim),
     )
 
     point_cloud_relay = Node(
