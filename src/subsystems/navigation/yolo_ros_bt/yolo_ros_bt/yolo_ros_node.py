@@ -79,7 +79,7 @@ class YoloRosNode(Node):
             raise
 
         for idx, topic in enumerate(image_topics):
-            ns = f'/yolo/{idx}'
+            ns = f'/yolo/cam{idx}'
             pubs = _CamPubs(
                 detections=self.create_publisher(
                     Detection2DArray, f'{ns}/detections', self.queue_size),
@@ -121,6 +121,10 @@ class YoloRosNode(Node):
         detection_array.header = msg.header
         annotated_frame = frame.copy()
 
+        img_h, img_w = frame.shape[:2]
+        norm_w = float(img_w) if img_w else 1.0
+        norm_h = float(img_h) if img_h else 1.0
+
         if not results:
             self._publish_empty(msg.header, pubs)
             return
@@ -154,12 +158,14 @@ class YoloRosNode(Node):
             center_x = (x_min + x_max) / 2.0
             center_y = (y_min + y_max) / 2.0
 
+            # Publish bbox in normalized [0, 1] image coordinates so the GUI
+            # can overlay it on any WebRTC stream regardless of encode size.
             detection_msg = Detection2D()
             detection_msg.header = msg.header
-            detection_msg.bbox.center.position.x = center_x
-            detection_msg.bbox.center.position.y = center_y
-            detection_msg.bbox.size_x = x_max - x_min
-            detection_msg.bbox.size_y = y_max - y_min
+            detection_msg.bbox.center.position.x = center_x / norm_w
+            detection_msg.bbox.center.position.y = center_y / norm_h
+            detection_msg.bbox.size_x = (x_max - x_min) / norm_w
+            detection_msg.bbox.size_y = (y_max - y_min) / norm_h
 
             hypothesis = ObjectHypothesisWithPose()
             hypothesis.hypothesis.class_id = class_name
@@ -171,7 +177,7 @@ class YoloRosNode(Node):
             if class_name in self.target_classes and conf > best_conf:
                 target_found = True
                 best_conf = conf
-                best_center = (center_x, center_y)
+                best_center = (center_x / norm_w, center_y / norm_h)
                 best_label = class_name
 
             cv2.rectangle(

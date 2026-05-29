@@ -60,7 +60,7 @@ class UsbCameraRelayNode(Node):
             devices = raw_devices
 
         for idx, device in enumerate(devices):
-            topic = f"{prefix}/{idx}/image_raw"
+            topic = f"{prefix}/cam{idx}/image_raw"
             pub = self.create_publisher(Image, topic, 5)
             t = threading.Thread(
                 target=self._capture_loop,

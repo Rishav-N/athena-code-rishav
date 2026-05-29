@@ -1,13 +1,13 @@
 yolo_node:
   ros__parameters:
     # One entry per camera. Index in this list determines the output namespace:
-    # camera 0 → /yolo/0/detections, /yolo/0/target_found, etc.
-    # camera 1 → /yolo/1/detections, /yolo/1/target_found, etc.
+    # camera 0 → /yolo/cam0/detections, /yolo/cam0/target_found, etc.
+    # camera 1 → /yolo/cam1/detections, /yolo/cam1/target_found, etc.
     image_topics:
       - /zed/zed_node/rgb/color/rect/image   # ZED (camera 0)
-      - /cameras/0/image_raw                  # USB cam 0
-      - /cameras/1/image_raw                  # USB cam 1
-      - /cameras/2/image_raw                  # USB cam 2
+      - /cameras/cam0/image_raw              # USB cam 0
+      - /cameras/cam1/image_raw              # USB cam 1
+      - /cameras/cam2/image_raw              # USB cam 2
 
     target_classes:
       - Bottle
