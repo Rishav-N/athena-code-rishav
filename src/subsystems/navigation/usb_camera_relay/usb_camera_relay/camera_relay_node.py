@@ -126,4 +126,3 @@ def main(args: Optional[List[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
-I don't have access to the jetson right now. Can you create a 
